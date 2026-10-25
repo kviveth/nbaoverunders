@@ -4,7 +4,6 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { api, getToken, saveToken } from '@/lib/client';
 import LeaguePicker from '@/components/LeaguePicker';
-import ScoringRules from '@/components/ScoringRules';
 import LinesBoard from '@/components/LinesBoard';
 import TeamLogo from '@/components/TeamLogo';
 import { fmt } from './r/[code]/Chart';
@@ -39,20 +38,9 @@ export default function Home() {
 
   return (
     <main className="wrap" style={{ maxWidth: 860 }}>
-      <nav className="row between small" style={{ paddingTop: 4 }}>
-        <span />
-        <span className="row">
-          <Link href="/rules">Rules & scoring</Link>
-          <Link href="/commish">Commissioner login</Link>
-        </span>
-      </nav>
       <div className="hero">
         <h1>🏀 NBA Over/Under Draft</h1>
       </div>
-
-      <ScoreChecker />
-
-      <LinesBoard />
 
       {err && <p className="error">{err}</p>}
       <div className="grid2">
@@ -73,6 +61,11 @@ export default function Home() {
           <p className="tiny muted">Want to try it first? <Link href="/commish">Create a test draft with bots</Link>.</p>
         </form>
       </div>
+
+      <ScoreChecker />
+
+      <LinesBoard />
+
     </main>
   );
 }
@@ -159,21 +152,10 @@ function ScoreChecker() {
               <button className="sm" onClick={() => setData(null)}>Sign in as someone else</button>
             </div>
           ) : (
-            <details open>
-              <summary className="small"><b>How scoring works</b></summary>
-              <ScoringRules compact />
-              <Link href="/rules" className="small">Full rules →</Link>
-            </details>
+            <p className="small muted">Pick your league and sign in with the name and PIN you joined with to see your points, your picks and the league standings.</p>
           )}
         </div>
       </div>
-      {data && (
-        <details style={{ marginTop: 10 }}>
-          <summary className="small">How scoring works</summary>
-          <ScoringRules compact />
-          <Link href="/rules" className="small">Full rules →</Link>
-        </details>
-      )}
     </section>
   );
 }

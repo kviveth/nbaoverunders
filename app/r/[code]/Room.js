@@ -111,7 +111,7 @@ export default function Room({ code }) {
           </div>
         </div>
         <div className="small" style={{ textAlign: 'right' }}>
-          <div>{me.name}{me.isCommish && ' ⭐'} · <Link href="/rules">Rules</Link></div>
+          <div>{me.name}{me.isCommish && ' ⭐'}</div>
           <button className="sm" onClick={() => { clearToken(code); setToken(null); setData(null); }}>Switch user</button>
         </div>
       </header>

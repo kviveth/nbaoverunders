@@ -1,6 +1,5 @@
 'use client';
 import { useState } from 'react';
-import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { api, saveToken } from '@/lib/client';
 import LeaguePicker from '@/components/LeaguePicker';
@@ -34,7 +33,6 @@ export default function CommishLogin() {
 
   return (
     <main className="wrap" style={{ maxWidth: 860 }}>
-      <p><Link href="/">← Home</Link></p>
       <h1>Commissioner</h1>
       {err && <p className="error">{err}</p>}
       <div className="grid2" style={{ alignItems: 'start' }}>
