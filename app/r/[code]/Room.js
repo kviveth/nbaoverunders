@@ -1,6 +1,7 @@
 'use client';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 import { api, clearToken, getToken, saveToken } from '@/lib/client';
 import ProjectionChart, { fmt, seriesColor } from './Chart';
 
@@ -20,7 +21,12 @@ export default function Room({ code }) {
   const [now, setNow] = useState(Date.now());
   const skew = useRef(0);
 
-  useEffect(() => { setToken(getToken(code)); setReady(true); }, [code]);
+  useEffect(() => {
+    setToken(getToken(code));
+    const t = new URLSearchParams(location.search).get('tab');
+    if (t) setTab(t);
+    setReady(true);
+  }, [code]);
 
   const load = useCallback(async () => {
     try {
@@ -99,11 +105,12 @@ export default function Room({ code }) {
           <div className="row small muted">
             <span>{room.season}</span>
             <StatusPill status={room.status} />
+            {room.test && <span className="pill warn">Test</span>}
             <button className="sm" onClick={() => { navigator.clipboard?.writeText(`${location.origin}/r/${code}`); flash('Invite link copied'); }}>Code {code} · copy link</button>
           </div>
         </div>
         <div className="small" style={{ textAlign: 'right' }}>
-          <div>{me.name}{me.isCommish && ' ⭐'}</div>
+          <div>{me.name}{me.isCommish && ' ⭐'} · <Link href="/rules">Rules</Link></div>
           <button className="sm" onClick={() => { clearToken(code); setToken(null); setData(null); }}>Switch user</button>
         </div>
       </header>
@@ -360,7 +367,7 @@ function StandingsTab({ data, room, me }) {
       <section className="card">
         <div className="row between">
           <h2>{allFinal ? 'Final standings' : 'Projected standings'}</h2>
-          <span className="tiny muted">{room.settings.scoring === 'zero' ? 'Misses score 0' : 'Misses score negative'}</span>
+          <Link href="/rules" className="tiny">Misses score negative · rules</Link>
         </div>
         {data.scores.map((s, i) => (
           <div key={s.id}>
@@ -568,7 +575,8 @@ function ActivityTab({ room }) {
 
 // ---------------- Commissioner ----------------
 
-function CommishTab({ data, room, draft, act, nameOf }) {
+function CommishTab({ data, room, draft, act, nameOf, flash }) {
+  const router = useRouter();
   const [newName, setNewName] = useState('');
   const lobby = room.status === 'lobby';
   const n = room.order.length;
@@ -577,17 +585,50 @@ function CommishTab({ data, room, draft, act, nameOf }) {
     [o[i], o[i + d]] = [o[i + d], o[i]];
     act({ type: 'order', order: o });
   };
+  const rename = (p) => {
+    const name = prompt(`New name for ${p.name}:`, p.name);
+    if (name && name !== p.name) act({ type: 'renamePlayer', pid: p.id, name }, 'Renamed');
+  };
+  const resetPin = (p) => {
+    if (confirm(`Reset ${p.name}'s PIN? They'll log back in with their name and choose a new PIN.`)) act({ type: 'resetPin', pid: p.id }, 'PIN reset — tell them to log in again');
+  };
+  async function deleteLeague() {
+    if (prompt(`This permanently deletes "${room.name}" and everything in it. Type DELETE to confirm.`) !== 'DELETE') return;
+    try {
+      await api(`/api/rooms/${room.code}`, { method: 'DELETE', token: getToken(room.code) });
+      clearToken(room.code);
+      router.push('/');
+    } catch (e) { flash(e.message); }
+  }
+  const PlayerRow = ({ p, i }) => (
+    <div className="row" style={{ padding: '4px 0', borderBottom: '1px solid var(--border)' }}>
+      <span className="muted num" style={{ width: 20 }}>{i == null ? '–' : i + 1}</span>
+      <span className="grow">
+        {p.bot && '🤖 '}{p.name}{p.isCommish && ' ⭐'}
+        {!p.bot && !p.claimed && <span className="tiny muted"> (hasn't logged in / PIN reset)</span>}
+        {i == null && <span className="tiny muted"> (not in draft order)</span>}
+      </span>
+      {lobby && i != null && <button className="sm" disabled={i === 0} onClick={() => move(i, -1)} aria-label="Move up">↑</button>}
+      {lobby && i != null && <button className="sm" disabled={i === n - 1} onClick={() => move(i, 1)} aria-label="Move down">↓</button>}
+      <button className="sm" onClick={() => rename(p)}>Rename</button>
+      {!p.bot && <button className="sm" onClick={() => resetPin(p)}>Reset PIN</button>}
+      {lobby && p.isCommish && i != null && <button className="sm" onClick={() => act({ type: 'setPlaying', pid: p.id, playing: false })}>Sit out</button>}
+      {lobby && i == null && <button className="sm" onClick={() => act({ type: 'setPlaying', pid: p.id, playing: true })}>Add to draft</button>}
+      {!p.isCommish && <button className="sm danger" onClick={() => confirm(`Remove ${p.name}?`) && act({ type: 'removePlayer', pid: p.id }, 'Removed')} aria-label={`Remove ${p.name}`}>✕</button>}
+    </div>
+  );
   return (
     <div className="grid2" style={{ alignItems: 'start' }}>
       <div>
         <section className="card stack">
           <h2>Draft controls</h2>
+          {room.test && <p className="pill warn">Test league — bots draft on their own</p>}
           {lobby && (
             <>
               <button className="primary" disabled={!n} onClick={() => confirm(`Start the draft? Lines lock now. ${draft.total} picks, ${n} players.`) && act({ type: 'start' }, 'Draft started!')}>
                 Start draft & lock lines
               </button>
-              <p className="tiny muted">Everyone in the draft order must have joined (or you can pick for them). You can pick on behalf of whoever is on the clock.</p>
+              <p className="tiny muted">You can pick on behalf of whoever is on the clock from the Draft tab.</p>
             </>
           )}
           {room.status === 'drafting' && <button onClick={() => act({ type: 'pause' })}>Pause draft</button>}
@@ -604,14 +645,11 @@ function CommishTab({ data, room, draft, act, nameOf }) {
 
         <section className="card stack">
           <h2>Settings</h2>
+          <label><span>League name</span>
+            <input defaultValue={room.name} onBlur={(e) => e.target.value !== room.name && act({ type: 'settings', name: e.target.value }, 'Renamed league')} />
+          </label>
           <label><span>Pick timer (seconds, 0 = no timer; autopicks the top suggestion)</span>
             <input type="number" min="0" max="3600" defaultValue={room.settings.pickSeconds} onBlur={(e) => +e.target.value !== room.settings.pickSeconds && act({ type: 'settings', pickSeconds: e.target.value }, 'Timer updated')} />
-          </label>
-          <label><span>Scoring for a missed pick</span>
-            <select value={room.settings.scoring} onChange={(e) => act({ type: 'settings', scoring: e.target.value })}>
-              <option value="negative">Negative (miss by 5 = −5)</option>
-              <option value="zero">Zero (miss = 0 points)</option>
-            </select>
           </label>
           <label><span>Picks per player{n ? ` (${n} players)` : ''}</span>
             <select disabled={!lobby} value={room.settings.useAll60 ? '1' : '0'} onChange={(e) => act({ type: 'settings', useAll60: e.target.value === '1' })}>
@@ -619,41 +657,34 @@ function CommishTab({ data, room, draft, act, nameOf }) {
               <option value="1">Use all 60 (some get one extra)</option>
             </select>
           </label>
+          <p className="tiny muted">Scoring: wins past the line in your direction; misses are negative. <Link href="/rules">Rules</Link></p>
         </section>
 
         <section className="card">
           <h2>Players & draft order</h2>
-          {room.order.map((id, i) => {
-            const p = room.players.find((x) => x.id === id);
-            return (
-              <div key={id} className="row" style={{ padding: '4px 0', borderBottom: '1px solid var(--border)' }}>
-                <span className="muted num" style={{ width: 20 }}>{i + 1}</span>
-                <span className="grow">{p.name}{!p.claimed && <span className="tiny muted"> (not joined yet)</span>}</span>
-                {lobby && <button className="sm" disabled={i === 0} onClick={() => move(i, -1)} aria-label="Move up">↑</button>}
-                {lobby && <button className="sm" disabled={i === n - 1} onClick={() => move(i, 1)} aria-label="Move down">↓</button>}
-                {lobby && !p.isCommish && <button className="sm danger" onClick={() => confirm(`Remove ${p.name}?`) && act({ type: 'removePlayer', pid: id })}>✕</button>}
-                {lobby && p.isCommish && <button className="sm" onClick={() => act({ type: 'setPlaying', pid: id, playing: false })}>Sit out</button>}
-              </div>
-            );
-          })}
-          {room.players.filter((p) => !room.order.includes(p.id)).map((p) => (
-            <div key={p.id} className="row small muted" style={{ padding: '4px 0' }}>
-              <span className="grow">{p.name} (not drafting)</span>
-              {lobby && <button className="sm" onClick={() => act({ type: 'setPlaying', pid: p.id, playing: true })}>Add to draft</button>}
-            </div>
-          ))}
+          {room.order.map((id, i) => <PlayerRow key={id} p={room.players.find((x) => x.id === id)} i={i} />)}
+          {room.players.filter((p) => !room.order.includes(p.id)).map((p) => <PlayerRow key={p.id} p={p} i={null} />)}
           {lobby && (
-            <>
-              <div className="row" style={{ marginTop: 8 }}>
-                <button onClick={() => act({ type: 'randomize' }, 'Order randomized')} disabled={n < 2}>🎲 Randomize order</button>
-              </div>
-              <form className="row" style={{ marginTop: 8 }} onSubmit={(e) => { e.preventDefault(); act({ type: 'addPlayer', name: newName }).then((ok) => ok && setNewName('')); }}>
-                <input className="grow" placeholder="Add player by name" value={newName} onChange={(e) => setNewName(e.target.value)} />
-                <button>Add</button>
-              </form>
-              <p className="tiny muted">Players can join themselves with the room code. Anyone you add here claims their seat by joining with the same name and choosing a PIN.</p>
-            </>
+            <div className="row" style={{ marginTop: 8 }}>
+              <button onClick={() => act({ type: 'randomize' }, 'Order randomized')} disabled={n < 2}>🎲 Randomize order</button>
+            </div>
           )}
+          <form className="row" style={{ marginTop: 8 }} onSubmit={(e) => { e.preventDefault(); act({ type: 'addPlayer', name: newName }, 'Player added').then((ok) => ok && setNewName('')); }}>
+            <input className="grow" placeholder={lobby ? 'Add player by name' : 'Add a late player'} value={newName} onChange={(e) => setNewName(e.target.value)} />
+            <button>Add</button>
+          </form>
+          <p className="tiny muted">
+            Players can join themselves with the room code. Anyone you add (or whose PIN you reset) logs in with their name and picks a new PIN.
+            {!lobby && ' Late players have no draft slot; give them picks with Edit picks below.'}
+          </p>
+        </section>
+
+        {room.picks.length > 0 && <PickEditor data={data} room={room} act={act} nameOf={nameOf} />}
+
+        <section className="card stack">
+          <h2 className="neg">Danger zone</h2>
+          <button className="danger" onClick={deleteLeague}>Delete this league</button>
+          <p className="tiny muted">Permanently removes the league, its picks and history.</p>
         </section>
       </div>
       <LinesEditor data={data} room={room} act={act} />
@@ -661,12 +692,82 @@ function CommishTab({ data, room, draft, act, nameOf }) {
   );
 }
 
+// Fix any pick: change its team, side or owner.
+function PickEditor({ data, room, act, nameOf }) {
+  const [open, setOpen] = useState(null);
+  const [draftEdit, setDraftEdit] = useState(null);
+  const abbr = Object.fromEntries(data.teams.map((t) => [t.id, t.abbr]));
+  const startEdit = (p) => { setOpen(p.n); setDraftEdit({ teamId: p.teamId, side: p.side, owner: p.owner }); };
+  async function save(p) {
+    if (await act({ type: 'editPick', n: p.n, ...draftEdit }, 'Pick updated')) setOpen(null);
+  }
+  return (
+    <section className="card">
+      <h2>Edit picks</h2>
+      <p className="tiny muted">Fix a mis-click or move a pick to another player. The pick takes the team's locked line.</p>
+      <div className="scroll" style={{ maxHeight: 420, overflowY: 'auto' }}>
+        <table className="small">
+          <tbody>
+            {room.picks.map((p) => (
+              <tr key={p.n}>
+                <td className="muted num">#{p.n + 1}</td>
+                {open === p.n ? (
+                  <>
+                    <td colSpan={2}>
+                      <div className="row">
+                        <select value={draftEdit.teamId} onChange={(e) => setDraftEdit({ ...draftEdit, teamId: e.target.value })} aria-label="Team">
+                          {[...data.teams].sort((a, b) => a.abbr.localeCompare(b.abbr)).map((t) => <option key={t.id} value={t.id}>{t.abbr}</option>)}
+                        </select>
+                        <select value={draftEdit.side} onChange={(e) => setDraftEdit({ ...draftEdit, side: e.target.value })} aria-label="Side">
+                          <option value="over">OVER</option>
+                          <option value="under">UNDER</option>
+                        </select>
+                        <select value={draftEdit.owner} onChange={(e) => setDraftEdit({ ...draftEdit, owner: e.target.value })} aria-label="Owner">
+                          {room.players.map((x) => <option key={x.id} value={x.id}>{x.name}</option>)}
+                        </select>
+                      </div>
+                    </td>
+                    <td className="r" style={{ whiteSpace: 'nowrap' }}>
+                      <button className="sm primary" onClick={() => save(p)}>Save</button> <button className="sm" onClick={() => setOpen(null)}>✕</button>
+                    </td>
+                  </>
+                ) : (
+                  <>
+                    <td><b>{abbr[p.teamId]}</b> <span className={sideCls(p.side)}>{S(p.side)} {p.line}</span></td>
+                    <td>{nameOf(p.owner)}</td>
+                    <td className="r"><button className="sm" onClick={() => startEdit(p)}>Edit</button></td>
+                  </>
+                )}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </section>
+  );
+}
+
 function LinesEditor({ data, room, act }) {
   const lobby = room.status === 'lobby';
   const [edits, setEdits] = useState({});
   const [paste, setPaste] = useState('');
-  const set = (id, f, v) => setEdits((e) => ({ ...e, [id]: { ...(e[id] || room.lines[id]), [f]: v } }));
+  const set = (id, f, v) => {
+    const t = data.teams.find((x) => x.id === id);
+    setEdits((e) => ({ ...e, [id]: { ...(e[id] || { line: t.line, over: t.over, under: t.under }), [f]: v } }));
+  };
   const dirty = Object.keys(edits).length > 0;
+
+  async function save() {
+    if (lobby) {
+      if (await act({ type: 'setLines', lines: edits }, 'Lines saved')) setEdits({});
+      return;
+    }
+    if (!confirm(`Change ${Object.keys(edits).length} locked line(s)? Every pick on those teams moves to the new line and scores recalculate.`)) return;
+    for (const [teamId, v] of Object.entries(edits)) {
+      if (!(await act({ type: 'editLockedLine', teamId, ...v }))) return;
+    }
+    setEdits({});
+  }
 
   function applyPaste() {
     // Accepts lines like "BOS 50.5 -120 +100" or "Celtics 50.5" (odds default to -110).
@@ -693,7 +794,7 @@ function LinesEditor({ data, room, act }) {
       <p className="tiny muted">
         {lobby
           ? `Built-in lines are a consensus of DraftKings, FanDuel, BetMGM, Caesars, bet365 and Polymarket as of ${data.feeds.seedLinesAsOf}. Edit any line before starting — they lock at draft start.`
-          : 'Locked at draft start.'}
+          : 'Locked at draft start. Only change one to fix a mistake: picks on that team move to the new line.'}
       </p>
       <div className="scroll">
         <table className="small">
@@ -703,10 +804,10 @@ function LinesEditor({ data, room, act }) {
               const v = edits[t.id] || { line: t.line, over: t.over, under: t.under };
               return (
                 <tr key={t.id}>
-                  <td><b>{t.abbr}</b></td>
+                  <td><b>{t.abbr}</b>{edits[t.id] && ' •'}</td>
                   {['line', 'over', 'under'].map((f) => (
                     <td key={f}>
-                      <input disabled={!lobby} style={{ width: 72, minHeight: 32, padding: '4px 6px' }} inputMode="decimal" value={v[f]} onChange={(e) => set(t.id, f, e.target.value)} />
+                      <input style={{ width: 72, minHeight: 32, padding: '4px 6px' }} inputMode="decimal" value={v[f]} onChange={(e) => set(t.id, f, e.target.value)} aria-label={`${t.abbr} ${f}`} />
                     </td>
                   ))}
                 </tr>
@@ -715,19 +816,17 @@ function LinesEditor({ data, room, act }) {
           </tbody>
         </table>
       </div>
+      <div className="row" style={{ marginTop: 8 }}>
+        <button className="primary" disabled={!dirty} onClick={save}>{lobby ? 'Save lines' : 'Save locked-line changes'}</button>
+        {dirty && <button onClick={() => setEdits({})}>Discard</button>}
+      </div>
       {lobby && (
-        <>
-          <div className="row" style={{ marginTop: 8 }}>
-            <button className="primary" disabled={!dirty} onClick={() => act({ type: 'setLines', lines: edits }, 'Lines saved').then((ok) => ok && setEdits({}))}>Save lines</button>
-            {dirty && <button onClick={() => setEdits({})}>Discard</button>}
-          </div>
-          <details style={{ marginTop: 10 }}>
-            <summary className="small">Bulk paste</summary>
-            <p className="tiny muted">One team per line: <code>BOS 50.5 -120 +100</code> or <code>Celtics 50.5</code>.</p>
-            <textarea value={paste} onChange={(e) => setPaste(e.target.value)} />
-            <button className="sm" onClick={applyPaste}>Apply to table</button>
-          </details>
-        </>
+        <details style={{ marginTop: 10 }}>
+          <summary className="small">Bulk paste</summary>
+          <p className="tiny muted">One team per line: <code>BOS 50.5 -120 +100</code> or <code>Celtics 50.5</code>.</p>
+          <textarea value={paste} onChange={(e) => setPaste(e.target.value)} />
+          <button className="sm" onClick={applyPaste}>Apply to table</button>
+        </details>
       )}
     </section>
   );

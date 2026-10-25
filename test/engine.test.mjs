@@ -31,11 +31,11 @@ test('snake order and pick counts', () => {
   assert.deepEqual([0, 6, 7, 13, 14].map((n) => drafterAt(room, n)), [o[0], o[6], o[6], o[0], o[0]]);
 });
 
-test('scoring: margin, negative vs zero', () => {
-  assert.equal(sidePoints('over', 50.5, 60.5, 'negative'), 10);
-  assert.equal(sidePoints('under', 50.5, 60.5, 'negative'), -10);
-  assert.equal(sidePoints('under', 50.5, 60.5, 'zero'), 0);
-  assert.equal(sidePoints('under', 50.5, 40.5, 'zero'), 10);
+test('scoring: margin past the line, misses are negative', () => {
+  assert.equal(sidePoints('over', 50.5, 60.5), 10);
+  assert.equal(sidePoints('under', 50.5, 60.5), -10);
+  assert.equal(sidePoints('under', 50.5, 40.5), 10);
+  assert.equal(sidePoints('over', 46.5, 42), -4.5); // Miami OVER, finished under by 4.5
 });
 
 test('projection blends record with line', () => {
@@ -132,4 +132,44 @@ test('archive resets for next season and keeps history', () => {
   assert.equal(room.status, 'lobby');
   assert.equal(room.archives.length, 1);
   assert.equal(room.picks.length, 0);
+});
+
+test('bots draft on their own, pausing between picks', () => {
+  const { room, commish } = setup(['A']);
+  for (const n of ['Bot1', 'Bot2']) applyAction(room, commish, { type: 'addPlayer', name: n, bot: true }, ctx(room));
+  room.settings.pickSeconds = 60;
+  applyAction(room, commish, { type: 'start' }, ctx(room, 0));
+  // Commish (human) is first: a bot doesn't jump in.
+  assert.equal(tick(room, teamTable(room, {}, {}), 1000), false);
+  applyAction(room, commish, { type: 'pick', teamId: '2', side: 'over' }, ctx(room, 1000));
+  assert.equal(tick(room, teamTable(room, {}, {}), 1500), false); // bot waits BOT_DELAY
+  tick(room, teamTable(room, {}, {}), 10_000); // both bots, then the snake comes back to them... until a human is up
+  assert.ok(room.picks.length >= 3);
+  assert.equal(onClock(room), room.order.find((id) => !room.players.find((p) => p.id === id).bot));
+});
+
+test('commish edits picks, locked lines, players', () => {
+  const { room, commish, actor } = setup(['A', 'B']);
+  room.settings.pickSeconds = 0;
+  applyAction(room, commish, { type: 'start' }, ctx(room));
+  const [x, y] = room.order.map(actor);
+  applyAction(room, x, { type: 'pick', teamId: '14', side: 'over' }, ctx(room));
+  applyAction(room, y, { type: 'pick', teamId: '2', side: 'under' }, ctx(room));
+  assert.throws(() => applyAction(room, y, { type: 'editPick', n: 0, side: 'under' }, ctx(room)), /commissioner/);
+  assert.throws(() => applyAction(room, commish, { type: 'editPick', n: 0, teamId: '2', side: 'under' }, ctx(room)), /already has/);
+  applyAction(room, commish, { type: 'editPick', n: 0, side: 'under', owner: y.id }, ctx(room));
+  assert.deepEqual([room.picks[0].side, room.picks[0].owner], ['under', y.id]);
+  applyAction(room, commish, { type: 'editLockedLine', teamId: '14', line: '44.5' }, ctx(room));
+  assert.equal(room.picks[0].line, 44.5);
+  assert.equal(room.locked.lines['14'].line, 44.5);
+  applyAction(room, commish, { type: 'renamePlayer', pid: x.id, name: 'Xavier' }, ctx(room));
+  assert.equal(x.name, 'Xavier');
+  applyAction(room, commish, { type: 'resetPin', pid: x.id }, ctx(room));
+  assert.equal(x.pinHash, null);
+  applyAction(room, commish, { type: 'addPlayer', name: 'Late' }, ctx(room));
+  const late = room.players.at(-1);
+  assert.ok(!room.order.includes(late.id));
+  applyAction(room, commish, { type: 'editPick', n: 1, owner: late.id }, ctx(room));
+  assert.ok(scoreboard(room, teamTable(room, {}, {})).some((s) => s.id === late.id));
+  assert.throws(() => applyAction(room, commish, { type: 'removePlayer', pid: late.id }, ctx(room)), /owns? picks/);
 });
