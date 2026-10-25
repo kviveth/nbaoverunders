@@ -4,6 +4,7 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { api, clearToken, getToken, saveToken } from '@/lib/client';
 import ProjectionChart, { fmt, seriesColor } from './Chart';
+import TeamLogo from '@/components/TeamLogo';
 
 const odds = (v) => (v > 0 ? `+${v}` : `${v}`);
 const pct = (p) => `${Math.round(p * 100)}%`;
@@ -237,7 +238,7 @@ function DraftTab({ data, room, me, draft, act }) {
               <div key={`${s.teamId}${s.side}`} className="sugg">
                 <span className="rank">{s.rank}</span>
                 <div style={{ minWidth: 0 }}>
-                  <div><b>{s.abbr}</b> <span className={sideCls(s.side)}>{s.side.toUpperCase()} {s.line}</span></div>
+                  <div><TeamLogo abbr={s.abbr} /><b>{s.abbr}</b> <span className={sideCls(s.side)}>{s.side.toUpperCase()} {s.line}</span></div>
                   <div className="tiny muted">
                     <span className="num">{fmt(s.exp)} pts · {s.hit}%</span>
                     {s.likelyGone && <span className="pill warn" style={{ marginLeft: 6 }}>won't last to your next pick</span>}
@@ -258,7 +259,7 @@ function DraftTab({ data, room, me, draft, act }) {
               <tbody>
                 {myPicks.map((k) => (
                   <tr key={k.n}>
-                    <td><b>{k.abbr}</b> <span className={sideCls(k.side)}>{S(k.side)} {k.line}</span></td>
+                    <td style={{ whiteSpace: 'nowrap' }}><TeamLogo abbr={k.abbr} /><b>{k.abbr}</b> <span className={sideCls(k.side)}>{S(k.side)} {k.line}</span></td>
                     <td className="r num muted">{k.w}-{k.l}</td>
                     <td className="r num">proj {k.proj}</td>
                     <td className={`r num ${k.pts >= 0 ? 'pos' : 'neg'}`}>{fmt(k.pts)}</td>
@@ -285,7 +286,7 @@ function DraftTab({ data, room, me, draft, act }) {
         {teams.map((t) => (
           <div key={t.id} className="team-row">
             <div style={{ minWidth: 0 }}>
-              <div><b>{t.abbr}</b> <span className="small">{t.name}</span></div>
+              <div className="row" style={{ gap: 0, flexWrap: 'nowrap' }}><TeamLogo abbr={t.abbr} size={24} /><b>{t.abbr}</b>&nbsp;<span className="small">{t.name}</span></div>
               <div className="tiny muted num">
                 Line {t.line} · {t.w}-{t.l} · proj {t.proj} · mkt O {pct(t.pOver)}
               </div>
@@ -340,7 +341,8 @@ function BoardTab({ data, room, draft, me, nameOf }) {
                   <td key={id} className={`${isNow ? 'now' : ''} ${p?.owner === me.id ? 'me' : ''}`}>
                     {p ? (
                       <>
-                        <b>{abbr[p.teamId]}</b> <span className={sideCls(p.side)}>{S(p.side)} {p.line}</span>
+                        <div style={{ whiteSpace: 'nowrap' }}><TeamLogo abbr={abbr[p.teamId]} /><b>{abbr[p.teamId]}</b></div>
+                        <span className={sideCls(p.side)}>{S(p.side)} {p.line}</span>
                         {traded && <div className="tiny muted">→ {nameOf(p.owner)}</div>}
                         {p.auto && <div className="tiny muted">auto</div>}
                       </>
@@ -383,7 +385,7 @@ function StandingsTab({ data, room, me }) {
                   <tbody>
                     {[...s.picks].sort((a, b) => b.pts - a.pts).map((k) => (
                       <tr key={k.n}>
-                        <td><b>{k.abbr}</b> <span className={sideCls(k.side)}>{S(k.side)} {k.line}</span></td>
+                        <td style={{ whiteSpace: 'nowrap' }}><TeamLogo abbr={k.abbr} /><b>{k.abbr}</b> <span className={sideCls(k.side)}>{S(k.side)} {k.line}</span></td>
                         <td className="r num">{k.w}-{k.l}</td>
                         <td className="r num">{k.proj}{k.final && ' ✓'}</td>
                         <td className="r num muted">{k.hit}%</td>
@@ -434,7 +436,7 @@ function TeamsTab({ data, room, nameOf }) {
               const d = t.proj - t.line;
               return (
                 <tr key={t.id}>
-                  <td><b>{t.abbr}</b></td>
+                  <td style={{ whiteSpace: 'nowrap' }}><TeamLogo abbr={t.abbr} /><b>{t.abbr}</b></td>
                   <td className="r num">{t.line}</td>
                   <td className="r num muted">{odds(t.over)} / {odds(t.under)}</td>
                   <td className="r num">{pct(t.pOver)}{t.poly && <span className="tiny muted" title={`Polymarket O/U ${t.poly.line}: ${pct(t.poly.pOver)} over`}> ●</span>}</td>
@@ -580,6 +582,7 @@ function CommishTab({ data, room, draft, act, nameOf, flash }) {
   const [newName, setNewName] = useState('');
   const lobby = room.status === 'lobby';
   const n = room.order.length;
+  const maxEach = n ? Math.floor(60 / n) : 0;
   const move = (i, d) => {
     const o = [...room.order];
     [o[i], o[i + d]] = [o[i + d], o[i]];
@@ -651,10 +654,16 @@ function CommishTab({ data, room, draft, act, nameOf, flash }) {
           <label><span>Pick timer (seconds, 0 = no timer; autopicks the top suggestion)</span>
             <input type="number" min="0" max="3600" defaultValue={room.settings.pickSeconds} onBlur={(e) => +e.target.value !== room.settings.pickSeconds && act({ type: 'settings', pickSeconds: e.target.value }, 'Timer updated')} />
           </label>
-          <label><span>Picks per player{n ? ` (${n} players)` : ''}</span>
-            <select disabled={!lobby} value={room.settings.useAll60 ? '1' : '0'} onChange={(e) => act({ type: 'settings', useAll60: e.target.value === '1' })}>
-              <option value="0">Equal: {n ? Math.floor(60 / n) : '–'} each ({n ? Math.floor(60 / n) * n : '–'} total)</option>
-              <option value="1">Use all 60 (some get one extra)</option>
+          <label><span>Picks per player{n ? ` (${n} players · ${draft.total} total picks)` : ''}</span>
+            <select
+              disabled={!lobby || !n}
+              value={room.settings.useAll60 ? 'all' : String(Math.min(room.settings.rounds || maxEach, maxEach))}
+              onChange={(e) => act(e.target.value === 'all' ? { type: 'settings', useAll60: true } : { type: 'settings', useAll60: false, rounds: +e.target.value }, 'Pick count updated')}
+            >
+              {Array.from({ length: maxEach }, (_, i) => maxEach - i).map((r) => (
+                <option key={r} value={r}>{r} each ({r * n} total){r === maxEach ? ' — max' : ''}</option>
+              ))}
+              {n && 60 % n !== 0 && <option value="all">Use all 60 (some get one extra)</option>}
             </select>
           </label>
           <p className="tiny muted">Scoring: wins past the line in your direction; misses are negative. <Link href="/rules">Rules</Link></p>
@@ -733,7 +742,7 @@ function PickEditor({ data, room, act, nameOf }) {
                   </>
                 ) : (
                   <>
-                    <td><b>{abbr[p.teamId]}</b> <span className={sideCls(p.side)}>{S(p.side)} {p.line}</span></td>
+                    <td style={{ whiteSpace: 'nowrap' }}><TeamLogo abbr={abbr[p.teamId]} /><b>{abbr[p.teamId]}</b> <span className={sideCls(p.side)}>{S(p.side)} {p.line}</span></td>
                     <td>{nameOf(p.owner)}</td>
                     <td className="r"><button className="sm" onClick={() => startEdit(p)}>Edit</button></td>
                   </>

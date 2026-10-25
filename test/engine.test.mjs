@@ -27,6 +27,11 @@ test('snake order and pick counts', () => {
   assert.equal(totalPicks(room), 56); // 8 each for 7 players
   room.settings.useAll60 = true;
   assert.equal(totalPicks(room), 60);
+  room.settings.useAll60 = false;
+  room.settings.rounds = 5; // e.g. a short draft: 5 each
+  assert.equal(totalPicks(room), 35);
+  room.settings.rounds = 99; // more than fits caps at the equal maximum
+  assert.equal(totalPicks(room), 56);
   const o = room.order;
   assert.deepEqual([0, 6, 7, 13, 14].map((n) => drafterAt(room, n)), [o[0], o[6], o[6], o[0], o[0]]);
 });

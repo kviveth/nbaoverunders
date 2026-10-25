@@ -5,6 +5,8 @@ import { useRouter } from 'next/navigation';
 import { api, getToken, saveToken } from '@/lib/client';
 import LeaguePicker from '@/components/LeaguePicker';
 import ScoringRules from '@/components/ScoringRules';
+import LinesBoard from '@/components/LinesBoard';
+import TeamLogo from '@/components/TeamLogo';
 import { fmt } from './r/[code]/Chart';
 
 export default function Home() {
@@ -50,6 +52,8 @@ export default function Home() {
       </div>
 
       <ScoreChecker />
+
+      <LinesBoard />
 
       {err && <p className="error">{err}</p>}
       <div className="grid2">
@@ -138,7 +142,7 @@ function ScoreChecker() {
                   <tbody>
                     {[...me.picks].sort((a, b) => b.pts - a.pts).map((k) => (
                       <tr key={k.n}>
-                        <td><b>{k.abbr}</b> <span className={k.side === 'over' ? 'over' : 'under'}>{k.side === 'over' ? 'O' : 'U'} {k.line}</span></td>
+                        <td style={{ whiteSpace: 'nowrap' }}><TeamLogo abbr={k.abbr} /><b>{k.abbr}</b> <span className={k.side === 'over' ? 'over' : 'under'}>{k.side === 'over' ? 'O' : 'U'} {k.line}</span></td>
                         <td className="r num">{k.w}-{k.l}</td>
                         <td className="r num">{k.proj}</td>
                         <td className={`r num ${k.pts >= 0 ? 'pos' : 'neg'}`}>{fmt(k.pts)}</td>
