@@ -48,7 +48,6 @@ export default function Home() {
       </nav>
       <div className="hero">
         <h1>🏀 NBA Over/Under Draft</h1>
-        <p className="muted">Snake-draft season win totals with friends. Score = how far your team beats the line (misses cost you).</p>
       </div>
 
       <ScoreChecker />
